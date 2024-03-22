@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Diet and Weight Control</title>
+    <script src="https://unpkg.com/htmx.org/dist/htmx.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f4;
+        }
+        .container {
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        h1, h2 {
+            color: #333;
+        }
+        form {
+            margin-bottom: 20px;
+        }
+        label {
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        input[type="date"],
+        input[type="number"],
+        button {
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+        button {
+            background-color: #007bff;
+            color: #fff;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        th, td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        canvas {
+            max-width: 100%;
+            height: auto;
+            margin-bottom: 20px;
+        }
+        #diet-tabs-meal,
+        #diet-tabs-level {
+            margin-bottom: 10px;
+        }
+        #diet-tabs-meal button,
+        #diet-tabs-level button {
+            padding: 8px 16px;
+            border: none;
+            background-color: #007bff;
+            color: #fff;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        #diet-tabs-meal button:hover,
+        #diet-tabs-level button:hover {
+            background-color: #0056b3;
+        }
+        #diet-requirements {
+            background-color: #f2f2f2;
+            padding: 10px;
+            border-radius: 4px;
+        }
+        table.diet-table {
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+<h1>饮食和体重控制</h1>
+
+<form hx-post="#weight-table" hx-target="#weight-table" hx-swap="outerHTML" hx-trigger="submit" onsubmit="saveWeight()">
+    <label for="date">日期:</label>
+    <input type="date" id="date" name="date" required value="">
+    <label for="weight">体重:</label>
+    <input type="number" id="weight" name="weight" step="0.01" required>
+    <button type="submit">Add Weight</button>
+</form>
+
+
+
+<h2>体重图</h2>
+
+
+
+<canvas id="weight-chart" width="400" height="200"></canvas>
+
+<h2>饮食要求</h2>
+<div id="diet-tabs-meal">
+    <button onclick="showDietRequirements(meal='早饭')">早饭</button>
+    <button onclick="showDietRequirements(meal='中饭')">中饭</button>
+    <button onclick="showDietRequirements(meal='晚饭')">晚饭</button>
+    <button onclick="showDietRequirements(meal='夜宵')">夜宵</button>
+</div>
+<div id="diet-tabs-level">
+    <button onclick="showDietRequirements(meal='default',level='高')">高</button>
+    <button onclick="showDietRequirements(meal='default',level='中')">中</button>
+    <button onclick="showDietRequirements(meal='default',level='低')">低</button>
+    <button onclick="showDietRequirements(meal='default',level='零')">零</button>
+</div>
+<div id="diet-requirements"></div>
+
+<h2>Weight Records</h2>
+
+<table border="1" id="weight-table">
+    <thead>
+        <tr>
+            <th>Date</th>
+            <th>Weight</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr hx-swap="outerHTML" hx-trigger="load">
+            <td>Loading...</td>
+        </tr>
+    </tbody>
+</table>
+</div>
+<script>
+
+    var filter_level = "高";
+    var filter_meal = "早饭";
+
+
+    function showDietRequirements(meal=null, level=null) {
+        if (meal != 'default') {
+            filter_meal = meal;
+        }
+        if (level != null) {
+            filter_level = level;
+        }
+        calculateDietRequirements();
+    }
+
+    // 设置日期输入框的默认值为今天（+8时区）
+    var today = new Date();
+    today.setHours(today.getHours() + 8); // 调整时区
+    var dateString = today.toISOString().split('T')[0]; // 获取日期字符串
+    document.getElementById('date').value = dateString;
+
+    // 从localStorage中加载体重记录
+    window.addEventListener('load', function() {
+        loadWeightRecords();
+        calculateDietRequirements();
+    });
+
+    // 保存体重记录到localStorage
+    function saveWeight() {
+        var date = document.getElementById('date').value;
+        var weight = document.getElementById('weight').value;
+        var weightRecords = JSON.parse(localStorage.getItem('weightRecords')) || {};
+        weightRecords[date] = weight;
+        localStorage.setItem('weightRecords', JSON.stringify(weightRecords));
+        loadWeightRecords();
+        loadWeightChart(weightRecords);
+        calculateDietRequirements();
+    }
+
+    // 加载体重记录到表格
+    function loadWeightRecords() {
+        var weightRecords = JSON.parse(localStorage.getItem('weightRecords')) || {};
+        var tableBody = document.querySelector('#weight-table tbody');
+        tableBody.innerHTML = '';
+        for (var date in weightRecords) {
+            var row = document.createElement('tr');
+            row.innerHTML = '<td>' + date + '</td><td>' + weightRecords[date] + '</td>';
+            tableBody.appendChild(row);
+        }
+        loadWeightChart(weightRecords);
+    }
+
+    // 加载体重图表
+    function loadWeightChart(weightRecords) {
+        var dates = Object.keys(weightRecords).sort();
+        var weights = dates.map(function(date) {
+            return parseInt(weightRecords[date]);
+        });
+
+        var ctx = document.getElementById('weight-chart').getContext('2d');
+        var chart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: dates,
+                datasets: [{
+                    label: 'Weight',
+                    data: weights,
+                    borderColor: 'blue',
+                    fill: false
+                }]
+            },
+            options: {
+                scales: {
+                    y: {
+                        beginAtZero: true
+                    }
+                }
+            }
+        });
+    }
+
+    function calculateDietRequirements() {
+        var today = new Date();
+        today.setHours(today.getHours() + 8);
+            var dd = String(today.getDate()).padStart(2, '0');
+            var mm = String(today.getMonth() + 1).padStart(2, '0'); // 一月是 0
+            var yyyy = today.getFullYear();
+            today = yyyy + '-' + mm + '-' + dd;
+
+            // 从 LocalStorage 获取体重记录
+            var weightRecords = JSON.parse(localStorage.getItem('weightRecords'));
+        var weight = parseFloat(weightRecords[today]);
+        if (isNaN(weight)) {
+            return; // 如果体重为空，则不计算
+        }
+
+        var coefficient = {
+            "高": {"早饭": {"碳水": 3.2, "干果": 0.15, "蛋白质": 1.25, "蔬菜": 1.2},
+                  "中饭": {"碳水": 3.2, "干果": 0, "蛋白质": 1.25, "蔬菜": 1.2, "鱼油": 0, "复维": 2},
+                  "晚饭": {"碳水": 3.2, "干果": 0, "蛋白质": 1.25, "蔬菜": 1.2},
+                  "夜宵": {"碳水": 0, "干果": 0, "蛋白质": 1.25, "蔬菜": 2.4}},
+            "中": {"早饭": {"碳水": 1.8, "干果": 0.16, "蛋白质": 1.9, "蔬菜": 1.2},
+                  "中饭": {"碳水": 1.8, "干果": 0.16, "蛋白质": 1.9, "蔬菜": 1.2, "鱼油": 2, "复维": 2},
+                  "晚饭": {"碳水": 1.8, "干果": 0.16, "蛋白质": 1.9, "蔬菜": 1.2},
+                  "夜宵": {"碳水": 0, "干果": 0.16, "蛋白质": 1.9, "蔬菜": 2.4}},
+            "低": {"早饭": {"碳水": 1, "干果": 0.28, "蛋白质": 2.5, "蔬菜": 1.2},
+                  "中饭": {"碳水": 1, "干果": 0.28, "蛋白质": 2.5, "蔬菜": 1.2, "鱼油": 2, "复维": 2},
+                  "晚饭": {"碳水": 1, "干果": 0.28, "蛋白质": 2.5, "蔬菜": 1.2},
+                  "夜宵": {"碳水": 0, "干果": 0.28, "蛋白质": 2.5, "蔬菜": 2.4}},
+            "零": {"早饭": {"碳水": 0, "干果": 0.44, "蛋白质": 2.5, "蔬菜": 1.2},
+                  "中饭": {"碳水": 0, "干果": 0.44, "蛋白质": 2.5, "蔬菜": 1.2, "鱼油": 2, "复维": 2},
+                  "晚饭": {"碳水": 0, "干果": 0.44, "蛋白质": 2.5, "蔬菜": 1.2},
+                  "夜宵": {"碳水": 0, "干果": 0.44, "蛋白质": 2.5,
+                            "蔬菜": 2.4}}};
+        var dietRequirements = document.getElementById('diet-requirements');
+        dietRequirements.innerHTML = ''; // 清空之前的内容
+
+        var table = document.createElement('table');
+        var thead = document.createElement('thead');
+        var tbody = document.createElement('tbody');
+
+        // 创建表头
+        var headRow = document.createElement('tr');
+        // var headCell1 = document.createElement('th');
+        // headCell1.textContent = 'Level';
+        // headRow.appendChild(headCell1);
+        // var headCell2 = document.createElement('th');
+        // headCell2.textContent = 'Meal';
+        // headRow.appendChild(headCell2);
+        var headCell3 = document.createElement('th');
+        headCell3.textContent = 'Nutrient';
+        headRow.appendChild(headCell3);
+        var headCell4 = document.createElement('th');
+        headCell4.textContent = 'Amount (g)';
+        headRow.appendChild(headCell4);
+        thead.appendChild(headRow);
+
+        // 计算饮食需求
+        for (var level in coefficient) {
+            if (level != filter_level) {
+                continue;
+            }
+            for (var meal in coefficient[level]) {
+                if (meal != filter_meal) {
+                    continue;
+                }
+                for (var nutrient in coefficient[level][meal]) {
+                    
+                    var amount = coefficient[level][meal][nutrient] * weight;
+                    
+                    if (nutrient == "鱼油")
+                    {
+                        amount = 2;
+                    }
+                    if (nutrient == "复维")
+                    {
+                        amount = 2;
+                    }
+                    
+                    var row = document.createElement('tr');
+                    // var levelCell = document.createElement('td');
+                    // levelCell.textContent = level;
+                    // row.appendChild(levelCell);
+                    // var mealCell = document.createElement('td');
+                    // mealCell.textContent = meal;
+                    // row.appendChild(mealCell);
+                    var nutrientCell = document.createElement('td');
+                    nutrientCell.textContent = nutrient;
+                    row.appendChild(nutrientCell);
+                    var amountCell = document.createElement('td');
+                    amountCell.textContent = amount.toFixed(2);
+                    row.appendChild(amountCell);
+                    tbody.appendChild(row);
+                }
+            }
+        }
+
+        table.appendChild(thead);
+        table.appendChild(tbody);
+        dietRequirements.appendChild(table);
+    }         
+</script>
+
+</body>
+</html>
